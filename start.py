@@ -4,8 +4,11 @@ import requests
 import time
 import lyricsgenius
 
-# --------- Toggle for local DeepSeek (Ollama) or OpenAI online ----------
-USE_LOCAL_DEEPSEEK = True  # True = use local DeepSeek via Ollama, False = use OpenAI online
+# --------- Toggles ----------
+USE_LOCAL_DEEPSEEK = True         # True = use local DeepSeek via Ollama, False = use OpenAI online
+USE_GENIUS = True                 # True = use Genius for lyrics, False = skip lyrics
+USE_LASTFM = True                 # True = use Last.fm for additional info, False = skip
+SHOW_LLM_PROMPT_DEBUG = False      # True = show the full prompt with all fields, False = skip printing it
 
 # ---------- Spotify API credentials ----------
 CLIENT_ID = 'xxx'
@@ -30,7 +33,6 @@ MODEL_ONLINE = 'gpt-4o'
 # ---------- Prompt templates ----------
 with open('prompt.txt', encoding='utf-8') as f:
     PROMPT_TEMPLATE = f.read()
-
 with open('system_prompt.txt', encoding='utf-8') as f:
     SYSTEM_PROMPT = f.read()
 
@@ -51,19 +53,20 @@ def clean_track_name(name):
     return name
 
 def get_lyrics(track_name, artist_name):
-    try:
-        cleaned_name = clean_track_name(track_name)
-        song = genius.search_song(cleaned_name, artist_name)
-        if song and getattr(song, "lyrics", None):
-            return song.lyrics[:1000]
-        song = genius.search_song(cleaned_name)
-        if song and getattr(song, "lyrics", None):
-            return song.lyrics[:1000]
-    except Exception as e:
-        print(f"[Lyrics ERROR] {track_name} - {artist_name}: {e}")
+    if not USE_GENIUS:
+        return ""
+    cleaned_name = clean_track_name(track_name)
+    song = genius.search_song(cleaned_name, artist_name)
+    if song and getattr(song, "lyrics", None):
+        return song.lyrics[:1000]
+    song = genius.search_song(cleaned_name)
+    if song and getattr(song, "lyrics", None):
+        return song.lyrics[:1000]
     return ""
 
 def get_lastfm_info(track_name, artist_name):
+    if not USE_LASTFM:
+        return ""
     try:
         url_track = (
             f"https://ws.audioscrobbler.com/2.0/?method=track.getInfo"
@@ -92,8 +95,7 @@ def get_lastfm_info(track_name, artist_name):
         if bio:
             extra += f"Artist bio: {bio[:300]}... "
         return extra.strip()
-    except Exception as e:
-        print(f"[Last.fm ERROR] {track_name} - {artist_name}: {e}")
+    except Exception:
         return ""
 
 def classify_track(
@@ -102,12 +104,24 @@ def classify_track(
     prompt = PROMPT_TEMPLATE.format(
         track_name=track_name,
         artist_name=artist_name,
-        lyrics=lyrics,
         album_name=album_name,
         release_date=release_date,
         artist_genres=artist_genres,
-        lastfm_info=lastfm_info
+        lastfm_info=lastfm_info,
+        lyrics=lyrics
     )
+    # --- Print FULL prompt for debugging and transparency if toggle is active ---
+    if SHOW_LLM_PROMPT_DEBUG:
+        print("\n================= LLM PROMPT =================")
+        print(f"Song: {track_name}")
+        print(f"Artist: {artist_name}")
+        print(f"Album: {album_name}")
+        print(f"Release Date: {release_date}")
+        print(f"Genres: {artist_genres}")
+        print(f"Last.fm Info: {lastfm_info}")
+        print(f"Lyrics: {lyrics[:400]}")
+        print("==============================================\n")
+    # ------------------------------------------------------
     if USE_LOCAL_DEEPSEEK:
         data = {
             "model": MODEL_LOCAL,
@@ -115,17 +129,15 @@ def classify_track(
             "stream": False
         }
         try:
-            response = requests.post(OLLAMA_URL, json=data, timeout=60)
+            response = requests.post(OLLAMA_URL, json=data, timeout=120)
             if response.ok:
                 answer = response.json().get('response', '').strip()
                 if answer in ["Cubana", "Línea"]:
                     return answer
                 return None
             else:
-                print(f"[Ollama ERROR] {track_name} - {artist_name}: {response.status_code}")
                 return None
-        except Exception as e:
-            print(f"[Ollama EXCEPTION] {track_name} - {artist_name}: {e}")
+        except Exception:
             return None
     else:
         headers = {
@@ -142,33 +154,28 @@ def classify_track(
             "temperature": temperature
         }
         try:
-            response = requests.post(OPENAI_API_URL, headers=headers, json=data, timeout=60)
+            response = requests.post(OPENAI_API_URL, headers=headers, json=data, timeout=120)
             if response.ok:
                 answer = response.json()['choices'][0]['message']['content'].strip()
                 if answer in ["Cubana", "Línea"]:
                     return answer
                 return None
             else:
-                print(f"[OpenAI ERROR] {track_name} - {artist_name}: {response.status_code}")
                 return None
-        except Exception as e:
-            print(f"[OpenAI EXCEPTION] {track_name} - {artist_name}: {e}")
+        except Exception:
             return None
 
+# -- Fetch tracks --
 tracks = []
 offset = 0
 limit = 100
 while True:
-    try:
-        results = sp.playlist_items(PLAYLIST_ID, offset=offset, limit=limit)
-        items = results.get('items', [])
-        if not items:
-            break
-        tracks.extend(items)
-        offset += len(items)
-    except Exception as e:
-        print(f"[Spotify ERROR]: {e}")
+    results = sp.playlist_items(PLAYLIST_ID, offset=offset, limit=limit)
+    items = results.get('items', [])
+    if not items:
         break
+    tracks.extend(items)
+    offset += len(items)
 
 for idx, item in enumerate(tracks):
     track = item.get('track')
@@ -179,38 +186,41 @@ for idx, item in enumerate(tracks):
     album = track.get('album', {}).get('name', 'Unknown Album')
     release_date = track.get('album', {}).get('release_date', 'Unknown Date')
     print(f"\n[{idx+1}] {name} - {artist}")
-    print("  Fetching Last.fm info ...")
+    # Last.fm info
+    #print("  Fetching Last.fm info ...")
     lastfm_info = get_lastfm_info(name, artist)
-    print("  Fetching lyrics ...")
+    # Lyrics
+    #print("  Fetching lyrics ...")
     lyrics = get_lyrics(name, artist)
+    # Genres for first artist
     artist_id = track.get('artists', [{}])[0].get('id', None)
     artist_genres = []
     if artist_id:
         try:
             artist_info = sp.artist(artist_id)
             artist_genres = artist_info.get('genres', [])
-        except Exception as e:
-            print(f"[Spotify Artist ERROR] {artist}: {e}")
+        except Exception:
             artist_genres = []
     genres_str = ', '.join(artist_genres)
+    # Klassifikation (zeigt Prompt im classify_track)
     style = classify_track(
         track_name=name,
         artist_name=artist,
-        lyrics=lyrics,
         album_name=album,
         release_date=release_date,
         artist_genres=genres_str,
-        lastfm_info=lastfm_info
+        lastfm_info=lastfm_info,
+        lyrics=lyrics
     )
     if style not in ["Cubana", "Línea"]:
         style = classify_track(
             track_name=name,
             artist_name=artist,
-            lyrics=lyrics,
             album_name=album,
             release_date=release_date,
             artist_genres=genres_str,
             lastfm_info=lastfm_info,
+            lyrics=lyrics,
             temperature=0.3
         )
     if style not in ["Cubana", "Línea"]:

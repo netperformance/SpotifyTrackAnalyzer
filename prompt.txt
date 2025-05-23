@@ -18,36 +18,30 @@ Classification criteria:
 - "Línea": Lyrics are romantic, dramatic, or about heartbreak; music is polished, commercial, typically NY/LA/PR based.
 
 Instructions:
-- Output ONLY one of: Cubana or Línea. NO explanation, no additional text. If unsure, make your best guess. NEVER output "Both" or "Unknown". 
-- You must always decide between Cubana and Línea. Never answer Cubana if you are unsure—make a careful decision based on all given context.
-- If the song or artist is in the reference list, use that style.
-- If the lyrics are romantic or heartbreak-themed, favor "Línea". If social, humorous, Cuban, favor "Cubana".
-- If both criteria apply, choose the DOMINANT style, but DO NOT answer with "Both" – always decide for either "Cubana" or "Línea".
-- If unsure, make your best guess, but NEVER reply with "Both" or "Unknown".
+1. If the artist or song is in the Cubana reference list, answer "Cubana".
+2. If the artist or song is in the Línea reference list, answer "Línea".
+3. If genres/tags include "romantica", "salsa romantica", "balada", "latin pop", "bachata", or if lyrics are about love, heartbreak, or have a dramatic/romantic style, answer "Línea".
+4. If genres/tags include "son cubano", "timba", "charanga", "cuban", "guaguancó", or lyrics are playful/social/political, answer "Cubana".
+5. If mixed, **decide based on what dominates most (count the indicators).**
+6. If unsure, pick the most likely based on genres/tags and lyrics. NEVER output "Cubana" by default if unsure, always follow these rules.
 
 Your output must be exactly one of: Cubana or Línea.
 
 EXAMPLES:
 
-Song: "Chan Chan"
-Artist: "Buena Vista Social Club"
-Lyrics: [lyrics]
-Output: Cubana
-
 Song: "Valió La Pena"
-Artist: "Marc Anthony"
-Lyrics: [lyrics]
+Artist: Marc Anthony
+Genres: salsa, salsa romantica
+Tags: salsa romantica, latin pop
+Lyrics: romantic
 Output: Línea
 
-Song: "Song with elements of both, but Cuban references dominate"
-Artist: "Mixed Artist"
-Lyrics: The song is both romantic and social, but references to Cuba dominate.
+Song: "Chan Chan"
+Artist: Buena Vista Social Club
+Genres: son cubano, salsa, guajira
+Tags: cuba, son cubano, timba
+Lyrics: references Cuba, social themes
 Output: Cubana
-
-Song: "Song with elements of both, but heartbreak dominates"
-Artist: "Mixed Artist"
-Lyrics: The song has both social lyrics and heartbreak lyrics, but heartbreak dominates.
-Output: Línea
 
 Now classify this song:
 
@@ -56,4 +50,5 @@ Artist: {artist_name}
 Album: {album_name}
 Release Date: {release_date}
 Genres: {artist_genres}
+Last.fm Info: {lastfm_info}
 Lyrics: {lyrics}
